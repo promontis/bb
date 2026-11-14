@@ -18,11 +18,13 @@ import {
   listRunningThreads,
   type ClaimedQueuedThreadMessageRow,
   type RunningThreadRow,
+  updateThread,
 } from "@bb/db";
 import {
   createStandaloneBuiltinCompactCommandInput,
   promptInputSchema,
   type PromptInput,
+  recordedThreadExecutionOptionsSchema,
   type QueuedMessagePayload,
   type QueuedMessageDeliveryMode,
   type QueuedMessageSystemNotice,
@@ -107,6 +109,7 @@ import {
 import type { TurnRequestRetryMarker } from "./thread-events.js";
 import { restoreInterruptedThreadStartupRequest } from "./thread-provisioning.js";
 import { markTurnTraceSpan } from "../system/turn-trace.js";
+import { deriveTitleFallback } from "./title-generation.js";
 
 export const pendingThreadStartContextSchema = z.object({
   environmentIntent: threadProvisionEnvironmentIntentSchema,
@@ -116,6 +119,11 @@ export const pendingThreadStartContextSchema = z.object({
   providerInput: z.array(promptInputSchema).optional(),
   startedOnBehalfOf: startedOnBehalfOfSchema.nullable(),
   titleProvided: z.boolean(),
+  /**
+   * Execution resolved at creation for a thread created without a first
+   * message, which has no queued start row to carry it.
+   */
+  execution: recordedThreadExecutionOptionsSchema.optional(),
 });
 export type PendingThreadStartContext = z.infer<
   typeof pendingThreadStartContextSchema
@@ -912,6 +920,14 @@ async function admitPendingThread(
       "internal_error",
       `Thread ${args.thread.id} is pending but has no start context to dispatch`,
     );
+  }
+  // A thread created without a first message has no fallback title yet; its
+  // first message supplies one, as it would have at creation.
+  if (args.thread.title === null && args.thread.titleFallback === null) {
+    const titleFallback = deriveTitleFallback(args.payload.input);
+    if (titleFallback !== null) {
+      updateThread(deps.db, deps.hub, args.thread.id, { titleFallback });
+    }
   }
   const execution = await buildExecutionOptions(deps, args.payload, {
     threadId: args.thread.id,

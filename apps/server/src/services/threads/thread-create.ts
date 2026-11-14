@@ -4,7 +4,12 @@ import {
   admitAfterPathClaimsSettle,
   assertEnvironmentPathAvailable,
 } from "../environments/path-admission.js";
-import { markThreadDeleted, getEnvironment, getThread } from "@bb/db";
+import {
+  markThreadDeleted,
+  getEnvironment,
+  getThread,
+  setThreadStartupContext,
+} from "@bb/db";
 import {
   describeSessionOptionConflict,
   modelSessionOptionConflict,
@@ -526,31 +531,45 @@ async function createPendingThreadAndAttemptFirstDispatch(
       args.request,
       executionPlanArgs,
     );
-    await attemptDispatch(deps, {
-      thread,
-      payload: {
-        input: args.request.input,
-        mode: "start",
-        model: execution.model,
-        reasoningLevel: execution.reasoningLevel,
-        serviceTier: execution.serviceTier,
-        permissionMode: execution.permissionMode,
-        ...(args.request.executionInputSources !== undefined
-          ? { executionInputSources: args.request.executionInputSources }
-          : {}),
-        ...(args.sendAt !== undefined ? { sendAt: args.sendAt } : {}),
-      },
-      source: { kind: "inline" },
-      queuePayload: { kind: "inline" },
-      pluginSubmission: args.request.pluginSubmission ?? null,
-      systemNotice: null,
-      startContext,
-      executionDefaults: executionPlanArgs,
-      origin: args.request.origin,
-      originPluginId: args.request.originPluginId ?? null,
-      startedOnBehalfOf: args.request.startedOnBehalfOf,
-      trigger: "user",
-    });
+    // An empty thread stays `pending` until its first message; that send is
+    // the first dispatch and starts it from the recorded start context, which
+    // also carries the execution chosen here.
+    if (args.fork === null && args.request.input.length === 0) {
+      setThreadStartupContext(deps.db, {
+        threadId: thread.id,
+        startupContext: JSON.stringify({
+          kind: "pending",
+          ...startContext,
+          execution,
+        } satisfies PendingThreadStartContext & { kind: "pending" }),
+      });
+    } else {
+      await attemptDispatch(deps, {
+        thread,
+        payload: {
+          input: args.request.input,
+          mode: "start",
+          model: execution.model,
+          reasoningLevel: execution.reasoningLevel,
+          serviceTier: execution.serviceTier,
+          permissionMode: execution.permissionMode,
+          ...(args.request.executionInputSources !== undefined
+            ? { executionInputSources: args.request.executionInputSources }
+            : {}),
+          ...(args.sendAt !== undefined ? { sendAt: args.sendAt } : {}),
+        },
+        source: { kind: "inline" },
+        queuePayload: { kind: "inline" },
+        pluginSubmission: args.request.pluginSubmission ?? null,
+        systemNotice: null,
+        startContext,
+        executionDefaults: executionPlanArgs,
+        origin: args.request.origin,
+        originPluginId: args.request.originPluginId ?? null,
+        startedOnBehalfOf: args.request.startedOnBehalfOf,
+        trigger: "user",
+      });
+    }
   } catch (error) {
     discardUnstartedThread(deps, thread);
     throw error;

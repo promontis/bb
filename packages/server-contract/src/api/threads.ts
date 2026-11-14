@@ -204,12 +204,23 @@ export const createThreadRequestSchema = z
         path: ["originPluginId"],
       });
     }
+    // An empty non-fork thread is created `pending` and waits for its first
+    // message, so there is nothing to schedule or hand to a plugin yet.
     if (value.originKind === null && value.input.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "input must contain at least one entry",
-        path: ["input"],
-      });
+      if (value.sendAt !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "sendAt requires a first message",
+          path: ["sendAt"],
+        });
+      }
+      if (value.pluginSubmission !== undefined) {
+        ctx.addIssue({
+          code: "custom",
+          message: "pluginSubmission requires a first message",
+          path: ["pluginSubmission"],
+        });
+      }
     }
     if (value.originKind === null && value.sourceSeqEnd !== undefined) {
       ctx.addIssue({

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { getAppSettings, getQueuedThreadStartMessage, getThread } from "@bb/db";
 import {
   DEFAULT_SERVICE_TIER,
@@ -7,6 +8,7 @@ import {
   type CallerExecutionInputSource,
   type PermissionMode,
   type ReasoningLevel,
+  recordedThreadExecutionOptionsSchema,
   type RecordedThreadExecutionOptions,
   type ResolvedThreadExecutionOptions,
   type ServiceTier,
@@ -28,7 +30,13 @@ import {
 } from "./thread-default-policy.js";
 import { getLastExecutionOptions } from "./thread-events.js";
 import { toThreadQueuedMessage } from "./thread-queued-messages.js";
+import { readThreadStartupContextOfKind } from "./thread-startup-store.js";
 import { getSupportedReasoningLevelsForProvider } from "./thread-reasoning-policy.js";
+
+/** The slice of a pending start context that an empty thread's first send needs. */
+const pendingThreadExecutionSchema = z.object({
+  execution: recordedThreadExecutionOptionsSchema.optional(),
+});
 
 interface ExecutionPlanFieldInput<TValue> {
   source: CallerExecutionInputSource;
@@ -86,7 +94,16 @@ function getStoredThreadExecutionOptions(
     return lastExecution;
   }
   const queuedStart = getQueuedThreadStartMessage(deps.db, thread.id);
-  if (queuedStart === null) return null;
+  if (queuedStart === null) {
+    return (
+      readThreadStartupContextOfKind(
+        deps.db,
+        thread.id,
+        "pending",
+        pendingThreadExecutionSchema,
+      )?.execution ?? null
+    );
+  }
   const queued = toThreadQueuedMessage(queuedStart);
   return {
     model: queued.model,

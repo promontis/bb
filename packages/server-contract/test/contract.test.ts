@@ -1608,7 +1608,29 @@ describe("server-contract canonical schemas", () => {
     ).toBe("sec_work");
   });
 
-  it("rejects empty input for a normal thread start", () => {
+  it("accepts empty input for a normal thread that waits for its first message", () => {
+    const parsed = createThreadRequestSchema.parse({
+      projectId: "proj_123",
+      providerId: "codex",
+      origin: "app",
+      input: [],
+      environment: {
+        type: "host",
+        hostId: "host_abc",
+        workspace: { type: "unmanaged", path: null },
+      },
+    });
+    expect(parsed.input).toEqual([]);
+  });
+
+  it.each([
+    ["sendAt", { sendAt: 1 }, "sendAt requires a first message"],
+    [
+      "pluginSubmission",
+      { pluginSubmission: { pluginId: "drafts", data: null } },
+      "pluginSubmission requires a first message",
+    ],
+  ])("rejects %s on an empty normal thread", (_field, extra, message) => {
     expect(() =>
       createThreadRequestSchema.parse({
         projectId: "proj_123",
@@ -1620,8 +1642,9 @@ describe("server-contract canonical schemas", () => {
           hostId: "host_abc",
           workspace: { type: "unmanaged", path: null },
         },
+        ...extra,
       }),
-    ).toThrow("input must contain at least one entry");
+    ).toThrow(message);
   });
 
   it("accepts empty input for an idle fork", () => {
